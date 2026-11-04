@@ -1,0 +1,221 @@
+CONFIG_IDF_TARGET="esp32c6"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# Reliability: post-mortem crash dump to the `coredump` flash partition (ELF format,
+# read via `idf.py coredump-info`). Survives the reboot -> diagnose the rst:0xc SW_CPU
+# without catching the live serial on a crash-looping native-USB device.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Energy: fast wake from deep sleep (skip app image validation) + quiet bootloader
+CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+# Timekeeping: external 32.768 kHz crystal (FC-135R on board) for accurate
+# deep-sleep timing and wall clock (day/night schedule)
+CONFIG_RTC_CLK_SRC_EXT_CRYS=y
+# Pinned because it drifted on its own (2026-09-16): the value lived only in sdkconfig, never in this
+# file, so regenerating the config dropped it back to the Kconfig default — 1024 -> 3000. IDF raises
+# this default precisely when an external crystal is selected, so 3000 is the better-founded number
+# and it is kept, but it was not a choice anyone made. More calibration cycles mean a more accurate
+# slow clock and a slightly longer boot, and boot time is spent out of the wake budget.
+# CHECK ON HARDWARE: wake duration and the day/night schedule, next time the log is read.
+CONFIG_RTC_CLK_CAL_CYCLES=3000
+# Security: all outbound HTTP (OpenWeatherMap key, Open-Meteo geocoding) goes
+# over HTTPS verified against the mbedTLS root-cert bundle. Never send the API
+# key in clear text.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# The main task runs the outbound TLS calls (weather, Telegram). The mbedTLS
+# handshake needs several KB of stack — the 3584 B default overflows (stack
+# protection fault). Give it room.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+
+# Power management. In Wi-Fi mode it scales the CPU clock (160/40 MHz) and nothing else: the device
+# spends its life in deep sleep, and automatic light sleep there once left a stale timer wake-up armed
+# under the logo sleep (hardware, 2026-09-11). In Matter mode the device can never deep sleep — a
+# sleepy Thread end device must keep its parent — so there, and only there, esp_pm_configure turns
+# automatic light sleep on at run time (owner, 2026-09-16). Tickless idle is what automatic light
+# sleep rides on; it is compile-time, and with light_sleep_enable=false it never sleeps.
+# Tickless idle also selects PM_SLP_DISABLE_GPIO through ESP_SLEEP_GPIO_RESET_WORKAROUND, which
+# isolates every pad during light sleep. Kept (Espressif default and ESD workaround); the pads that
+# must hold — panel, panel power gate, I2C, LED — are exempted with gpio_sleep_sel_dis(), exactly as
+# the PM_SLP_DISABLE_GPIO help text prescribes.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# Light sleep entry/exit callbacks. The only way the saving from PmGate is observable at all: the
+# event log measures with esp_timer, which PM compensates across light sleep on purpose, so a wait
+# that now costs a tenth of the current still reports the same milliseconds. pm_gate.cpp counts the
+# microseconds actually slept and prints them. Cost: two adds in the idle task per sleep.
+CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
+
+# ИЗМЕРЯЕТСЯ 2026-09-20. DHCP стоил ~1,05 с в каждом радиоокне, и число почти не гуляло
+# (1030, 1070, 1037 мс) — это не задержка сети, а фиксированная пауза. По коду: наша прежняя
+# настройка DOES_ARP_CHECK включает в lwIP модуль обнаружения конфликта, который после получения
+# предложенного адреса уходит в состояние CHECKING, шлёт ARP и ждёт ответа. Здесь мы эту проверку
+# снимаем, чтобы увидеть, вся ли секунда оттуда.
+# ЦЕНА, если оставим: перестаём замечать адрес, занятый вручную ВНУТРИ пула DHCP. Сам роутер один
+# адрес дважды не выдаёт, так что риск — соседнее устройство со статикой в пуле; тогда оба работают
+# через раз, и владелец ищет причину долго.
+CONFIG_LWIP_DHCP_DOES_NOT_CHECK_OFFERED_IP=y
+# With a computer on the cable, never auto light sleep: USB-Serial/JTAG cannot work through it.
+# A charger sends no USB frames, so on a charger the device still sleeps.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+
+# Task watchdog: 60 s, and a panic (reboot + core dump) rather than a printed warning.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Flash on four data lines instead of two: the same 80 MHz clock moves twice the
+# instructions per cycle, and every wake begins by fetching code out of it.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# ---- release identity and a build that can be verified ----------------------------------------
+# A firmware you cannot reproduce is a firmware you cannot check. With the compile timestamp baked
+# in, the same source produced a different binary every time, so there was no way to confirm that
+# what is running on a device is what is in the repository -- which is the first question anyone
+# asks after a bad update, and the only one an update channel makes urgent.
+CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
+CONFIG_APP_PROJECT_VER="0.10.50+115"
+CONFIG_APP_COMPILE_TIME_DATE=n
+CONFIG_BOOTLOADER_COMPILE_TIME_DATE=n
+
+# ---- signed updates and rollback ---------------------------------------------------------------
+# The signature on the image is what decides whether bytes may become code. TLS authenticates the
+# fetch and the manifest is advisory; neither survives a compromised CA or a server that lies, and
+# both are outside our control. This is inside it.
+#
+# NOT hardware Secure Boot: that is the last production step and it is irreversible, and enabling it
+# today would remove the cable — the only recovery this product has ever had — before the update
+# path has been exercised on a single real unit. On-boot verification is not even available here:
+# SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT depends on the V1 ECDSA scheme, so with V2 on the C6 the
+# choice does not exist. It is verification on UPDATE that we need and get.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME=y
+CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+
+# Signing is a release step, not a build step. Build-time signing wants the key path in sdkconfig,
+# and the key deliberately lives outside the repository — so that path would be absolute and the
+# project would stop building on any other machine. That is exactly the trap the ArduinoJson
+# include path was (4.31). Builds stay key-free and reproducible; tools/sign_release.sh signs.
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
+
+# The new image gets one chance to prove itself. Without this the bootloader has no pending state
+# to resolve and a bad update is permanent.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# Sockets: httpd reserves 3 and serves 10 sessions (LRU purge), the captive DNS holds one, and
+# handlers open outbound TLS clients. ESP-IDF's captive_portal example uses 16.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# ---- tick rate: 100 -> 1000 Hz (owner, 2026-09-16) ----------------------------------------------
+# Matter and OpenThread are written against a 1 ms tick; the ICD polling intervals and the CHIP
+# timers assume it. Raising it also removes a family of bugs of our own rather than creating one:
+# pdMS_TO_TICKS rounds DOWN, and at 100 Hz a 2 ms wait became zero ticks — that is what forced the
+# explicit round-up in SCD41's wait_ms(), the "at least 10 ms" panel reset and the BME69x delay
+# callback (section 13). A finer tick can only shorten the over-waiting those patches introduced.
+# The cost is a timer interrupt ten times as often, which is current — but light sleep is off and
+# the device is awake about a second a minute, so it is paid only while awake.
+# MUST be re-checked on hardware: panel, SCD41 and BME69x are exactly where the timings were tuned.
+CONFIG_FREERTOS_HZ=1000
+
+# ---- Matter over Thread, in the same image as Wi-Fi (owner, 2026-09-16) ------------------------
+# Taken from esp-matter/examples/icd_app/sdkconfig.defaults (the sleepy-device reference), except:
+#   CONFIG_DISABLE_IPV4 / CONFIG_LWIP_IPV4=n — the console, HTTPS and the updater all need IPv4;
+#   CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n — the setup access point is the only way in without a cable;
+#   CONFIG_RTC_CLK_SRC_EXT_CRYS=n — this board has the FC-135R crystal and uses it;
+#   CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP — powering the digital domain down takes the IO
+#     MUX with it, and the panel power gate, RST and CS must hold through every sleep. ~100 uA more;
+#   CONFIG_PM_DFS_INIT_AUTO — PM is configured by configure_power_management(), per mode;
+#   CONFIG_ENABLE_OTA_REQUESTOR — no Matter hub serves our images; updates go through the console;
+#   CONFIG_LWIP_ND6=n — breaks the Wi-Fi netif's IPv6 output (see below);
+#   the 4 MB flash, the partition offset and the LIT (long idle time) block.
+# CONFIG_ENABLE_WIFI_STATION is CHIP's option, not IDF's: with it on, esp_matter::start runs
+# ESP32Utils::InitWiFiStack() and creates Wi-Fi netifs of its own next to wifi_manager's. The IDF
+# Wi-Fi driver stays built in either way; Matter simply never touches it. (icd_app also sets
+# ENABLE_WIFI_AP=n; this CHIP has no such symbol, so it is not repeated here.)
+CONFIG_ENABLE_WIFI_STATION=n
+CONFIG_OPENTHREAD_ENABLED=y
+CONFIG_OPENTHREAD_MTD=y
+CONFIG_OPENTHREAD_SRP_CLIENT=y
+CONFIG_OPENTHREAD_LOG_LEVEL_DYNAMIC=n
+CONFIG_OPENTHREAD_LOG_LEVEL_NOTE=y
+CONFIG_OPENTHREAD_CLI=n
+
+# Commissioning happens over BLE (CHIPoBLE): the phone talks to the device before it has a network.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
+
+# CHIP's session establishment needs HKDF; mDNS must be the full implementation, not CHIP's minimal
+# one, because ours is already used for smartmeteo.local.
+CONFIG_MBEDTLS_HKDF_C=y
+CONFIG_USE_MINIMAL_MDNS=n
+
+# Thread needs more IPv6 addresses than the default, and multicast ping for discovery.
+CONFIG_LWIP_IPV6_NUM_ADDRESSES=8
+CONFIG_LWIP_MULTICAST_PING=y
+
+# Four endpoints, and the limit counts the root: root, air quality (with the CO2 cluster), temperature,
+# humidity — no spare. Adding one means raising this. Creating
+# an endpoint past this limit returns null and the app aborts — it reads as "failed to create
+# endpoint", nothing like a count being exhausted (learned on the bench).
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=4
+
+# Attestation with the test certificate compiled into the image, which is why a hub calls the device
+# uncertified. It needs no esp_secure_cert or factory partition — that is what lets Matter live in
+# our own partition table. Real attestation would need a DAC and a table change.
+CONFIG_EXAMPLE_DAC_PROVIDER=y
+
+# Every device gets its own setup code and discriminator, generated once and kept in NVS
+# (matter_mode.cpp). The example provider hands out 20202021 / 3840 — the same for every unit.
+CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y
+
+# Sleepy end device (ICD, short idle time), values from icd_app.
+CONFIG_ENABLE_ICD_SERVER=y
+CONFIG_ICD_FAST_POLL_INTERVAL_MS=500
+CONFIG_ICD_IDLE_MODE_INTERVAL_SEC=60
+CONFIG_ICD_ACTIVE_MODE_INTERVAL_MS=1000
+CONFIG_ICD_ACTIVE_MODE_THRESHOLD_MS=1000
+CONFIG_SUPPORT_GROUPCAST_CLUSTER=n
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+# NOT icd_app's CONFIG_LWIP_ND6=n: that sample has no Wi-Fi, and with the Wi-Fi netif present lwIP's
+# ethip6_output() needs neighbour discovery — the link fails with nd6_get_next_hop_addr_or_queue
+# undefined (2026-09-17).
+
+# Radio sleep during automatic light sleep (icd_app).
+CONFIG_IEEE802154_SLEEP_ENABLE=y
+CONFIG_BT_LE_SLEEP_ENABLE=y
+# NOT icd_app's BT_LE_LP_CLK_SRC_MAIN_XTAL: the Kconfig help recommends it only without a 32.768 kHz
+# crystal, and says the crystal gives lower light-sleep current. This board has one, and Bluetooth stays
+# initialised for as long as the device is not in a smart home.
+CONFIG_BT_LE_LP_CLK_SRC_DEFAULT=y
+CONFIG_ESP_SLEEP_POWER_DOWN_FLASH=y
+CONFIG_ESP_PHY_MAC_BB_PD=y
+
+# Matter: development switches that upstream leaves on and that must not ship.
+# CONFIG_ENABLE_TEST_SETUP_PARAMS makes the stack fall back to the example commissioning parameters;
+# CONFIG_TEST_EVENT_TRIGGER_ENABLED exposes diagnostic triggers whose enable key is the stock
+# all-devices value printed in every example (so any commissioned fabric member could fire them);
+# CONFIG_SUPPORT_UNIT_TESTING_CLUSTER adds a cluster that exists for CHIP's own test suite.
+# Found 2026-09-18 during the EN 18031 gap analysis — see Docs/compliance_2026-09-18.md, GEC.
+# CONFIG_ENABLE_TEST_SETUP_PARAMS is not set
+# CONFIG_TEST_EVENT_TRIGGER_ENABLED is not set
+# CONFIG_SUPPORT_UNIT_TESTING_CLUSTER is not set
+
+# Build the whole tree for size, not for debugging (measured 2026-09-19: content 2 939 416 ->
+# 2 806 728 bytes, 130 KB, and the free space in the 3072K slot from 6 % to 10 %). Until now only
+# CHIP, esp_matter, openthread, bt and main were built this way; the 130 KB comes from everything
+# else that was still at -Og — lwIP, mbedTLS, wpa_supplicant and the long tail of ESP-IDF. Wi-Fi's
+# own net80211 and pp are Espressif binaries and are unaffected either way.
+#
+# What it costs is stepping through code in a debugger, and possibly a less complete backtrace in a
+# core dump — not correctness: assertions are a separate option and stay on. The per-component list
+# in CMakeLists.txt is kept even though it is now redundant, because CHIP is built by GN and takes
+# its flags from the `chip` component rather than from this setting.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

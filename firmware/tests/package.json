@@ -1,0 +1,12 @@
+{
+  "name": "smart-meteo-tests",
+  "private": true,
+  "description": "Браузерный набор: консоль прибора в настоящем Chromium. Остальные наборы node не требуют.",
+  "scripts": {
+    "test": "node t_browser.js",
+    "headed": "node t_browser.js --headed"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

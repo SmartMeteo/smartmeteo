@@ -1,0 +1,26 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# 64K, not 24K: a commissioned Matter fabric took 3 of 12 pages (~12K) on the bench, and NVS needs a
+# free page to compact into. 24K would have held it, but with no room to breathe beside our own keys.
+nvs,      data, nvs,     ,        0x10000,
+otadata,  data, ota,     ,        0x2000,
+phy_init, data, phy,     ,        0x1000,
+nvs_key,  data, nvs_keys,,        0x3000,
+# 2560K->3072K (owner, 2026-09-16): one image now carries Matter as well as Wi-Fi, and the two stacks
+# together measure ~2.7-2.8 MB. Both slots grow, because either may hold either firmware after an OTA.
+# Changing this table cannot be done over the air — it is a factory-time decision.
+app0,     app,  ota_0,   ,        3072K,
+app1,     app,  ota_1,   ,        3072K,
+# 2048K->1600K. Capacity is derived at runtime (cap_ = size / sizeof(HistRec)), so nothing in the code
+# changes: 1600K = 51200 records of 32 B. Depth now depends on the write step, which became a setting:
+# 5 min -> 177 days, 10 min -> 355, 15 min (default) -> 533. The old 5-min step was not a requirement,
+# only a side effect of writing inside measure(), which runs on the 300 s gas tick.
+storage,  data, spiffs,  ,        1600K,
+# Post-mortem crash dump (ELF backtraces), read via `idf.py coredump-info` after a panic.
+# Since 2026-09-16 every offset from otadata on has moved: a device on the old table needs
+# `tools/flash.sh --full`, and its NVS, history and log do not survive that flash.
+coredump, data, coredump,,        64K,
+# Flight recorder: one 32-byte record every wake plus discrete events, in a raw ring.
+# 768K->256K (2026-09-16): 8192 slots, about 8 days of complete behaviour at the measured 1065 wakes
+# a day, instead of 23. This is the line item that paid for the bigger app slots; if 8 days proves too
+# short in the field, take it back from history. The table now fills the flash to 0x800000.
+events,   data, 0x40,    ,        256K,

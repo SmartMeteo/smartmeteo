@@ -1,0 +1,6 @@
+## Managed component dependencies (fetched by the IDF component manager).
+dependencies:
+  idf: ">=5.0"
+  # mDNS: lets the user reach the web console at http://smartmeteo.local
+  # without knowing the router-assigned IP.
+  espressif/mdns: "^1.2.0"

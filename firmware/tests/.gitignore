@@ -1,0 +1,11 @@
+t_analytics
+t_weather
+t_portal
+t_sunmoon
+*.dSYM/
+node_modules/
+package-lock.json
+
+# объектные файлы вендорских .c для t_cycle
+.cycle-obj/
+t_cycle

@@ -1,0 +1,19 @@
+# ESP-IDF build output and downloaded components
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig.old
+
+# Bosch BSEC: not redistributable (firmware/components/bsec2/README.md)
+firmware/components/bsec2/lib/
+firmware/components/bsec2/include/
+firmware/components/bsec2/config/
+
+# Signing keys never belong in a repository
+*.pem
+
+# Host test and tool output
+firmware/tests/node_modules/
+firmware/tests/.cycle-obj/
+firmware/tools/screenhost/screenhost
+firmware/tools/screenhost/out_*.pgm
+.DS_Store
