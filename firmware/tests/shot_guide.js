@@ -50,6 +50,9 @@ const freePort = () => new Promise(res => {
     const h = await page.evaluateHandle(t => {
       for (const e of document.querySelectorAll('.sectlabel')) if (e.textContent.trim() === t) return e.nextElementSibling;
       for (const e of document.querySelectorAll('h3')) if (e.textContent.trim() === t) return e.closest('.card');
+      // a folded card (the security log) is named by its <summary>; open it for the picture
+      for (const e of document.querySelectorAll('summary')) if (e.textContent.trim() === t) {
+        e.parentElement.open = true; e.parentElement.dispatchEvent(new Event('toggle')); return e.closest('.card'); }
       return null;
     }, text);
     const el = h.asElement();
@@ -78,7 +81,7 @@ const freePort = () => new Promise(res => {
   // Cards — without the fixed bottom bar, which otherwise lands across whatever card sits low on the screen
   await page.addStyleTag({ content: '#nav{display:none!important}' });
   for (const [n, t, x] of [
-    ['c_aqdetails', 'dash', 'Air-quality details'], ['c_history', 'dash', 'History'],
+    ['c_aqdetails', 'sys', 'Air-quality details'], ['c_history', 'dash', 'History'],
     ['c_battery_dash', 'dash', 'Battery'], ['c_gascal', 'dash', 'Gas sensor calibration'],
     ['c_running', 'mode', 'Running now'],
     ['c_setclock', 'set', 'Clock'], ['c_strip', 'set', 'Bottom strip'], ['c_units', 'set', 'Units'],
@@ -86,7 +89,7 @@ const freePort = () => new Promise(res => {
     ['c_telegram', 'set', 'Telegram'], ['c_co2cal', 'set', 'CO₂ calibration'],
     ['c_tempcal', 'set', 'Match a thermometer'],
     ['c_updates', 'sys', 'Firmware updates'], ['c_seclog', 'sys', 'Security log'],
-    ['c_password', 'sys', 'Device password'], ['c_maint', 'sys', 'Maintenance']]) await card(n, t, x);
+    ['c_password', 'set', 'Device password'], ['c_maint', 'sys', 'Maintenance']]) await card(n, t, x);
   // Mode tab cards without a heading of their own
   await go('mode');
   for (const [n, id] of [['c_clock', 'lcCard'], ['c_night', 'nmCard']]) {

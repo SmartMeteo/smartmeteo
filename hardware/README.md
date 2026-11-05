@@ -18,4 +18,5 @@ magnets for a fridge door.
 
 ## board-v2/
 
-The board itself. Schematic, layout and bill of materials will be added here.
+The board itself (silkscreen "SmartMeteo v2.2"): schematic, bill of materials and Gerber
+files. See `board-v2/README.md`.

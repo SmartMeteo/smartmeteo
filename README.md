@@ -104,7 +104,7 @@ Some comments in the code, and most in the tests, are in Russian.
 |---|---|
 | `firmware/` | ESP-IDF project: `main/` is the firmware, `tests/` the host tests, `tools/` flashing, signing and diagnostics |
 | `hardware/enclosure/` | the enclosure: Fusion 360 generator scripts, STEP and STL for PLA and resin printing |
-| `hardware/board-v2/` | the board — schematic, layout and BOM to follow |
+| `hardware/board-v2/` | the board: schematic, BOM and Gerber files |
 | `artwork/` | the scripts that turn the setup-screen picture and the logo into firmware data |
 | `docs/` | photos and documentation (CC BY-SA 4.0) |
 
